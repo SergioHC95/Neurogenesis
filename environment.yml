@@ -1,0 +1,13 @@
+name: neurogen
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.12.3
+  - pip
+  - numpy
+  - matplotlib
+  - tqdm
+  - pip:
+      - torch
+      - torchvision
