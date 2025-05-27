@@ -1,4 +1,6 @@
-# Grow When Needed: Adaptive Capacity Expansion in Neural Networks
+# Online Neurogenesis Through Synaptic Plasticity Signals
+## A Framework for Adaptive Neural Network Growth During Training
+
 
 ## 🧠 Project Overview
 
