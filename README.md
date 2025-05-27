@@ -2,13 +2,13 @@
 ## A Framework for Adaptive Neural Network Growth During Training
 
 
-## 🧠 Project Overview
+### 🧠 Project Overview
 
 **Goal:** Design MLPs that start small and *grow adaptively* during training, based on internal signals that reflect learning saturation and bottlenecks. We aim to boost *sample efficiency*, reduce *computational cost*, and maintain strong generalization.
 
 This project explores how internal training signals—such as mutual information, gradient norms, and activation dynamics—can be used to **diagnose capacity limits** and **trigger model growth**.
 
-## 🔬 Motivation
+### 🔬 Motivation
 
 Modern networks are often overparameterized from the outset. But this is wasteful. We hypothesize that:
 > A model should only grow **when it needs to**—not before.
@@ -18,14 +18,14 @@ This principle can:
 - Adapt to different dataset complexities
 - Offer interpretability through clear growth triggers
 
-## 🧪 Key Research Questions
+### 🧪 Key Research Questions
 
 1. What internal signals reliably detect saturation in learning dynamics?
 2. Does adaptive growth improve compute/sample efficiency?
 3. What growth strategies are most effective (depth-first, width-first)?
 4. How should newly added neurons/layers be initialized?
 
-## 🧭 Project Structure
+### 🧭 Project Structure
 
 ```
 grow-when-needed/
@@ -51,13 +51,13 @@ grow-when-needed/
 └── README.md
 ```
 
-## 📊 Planned Experiments
+### 📊 Planned Experiments
 
 - MNIST, Fashion-MNIST, Parity Task, CIFAR-10 (flattened)
 - Baselines: small/fixed MLPs, dropout, early stopping
 - Ablations: MI vs gradient triggers, growth type, layer init
 
-## 📦 Deliverables
+### 📦 Deliverables
 
 - Modular PyTorch codebase
 - Diagnostic toolkit
