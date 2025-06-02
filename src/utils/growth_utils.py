@@ -1,7 +1,6 @@
-import torch
 import torch.nn as nn
-from typing import List, Union, Optional
-from .init_utils import init_weight_block, InitType
+
+from .init_utils import InitType, init_weight_block
 
 
 def insert_layer(
@@ -24,8 +23,8 @@ def insert_layer(
     if new_size <= 0:
         raise ValueError(f"New size must be positive, got {new_size}")
 
-    prev_out = model.layer_sizes[index]
-    next_in = model.layer_sizes[index + 1]
+    prev_out = model.layer_dims[index]
+    next_in = model.layer_dims[index + 1]
 
     layer1 = nn.Linear(prev_out, new_size)
     layer2 = nn.Linear(new_size, next_in)
@@ -41,19 +40,19 @@ def insert_layer(
         + nn.ModuleList([layer1, layer2])
         + model.layers[index + 1 :]
     )
-    model.layer_sizes = (
-        model.layer_sizes[: index + 1] + [new_size] + model.layer_sizes[index + 1 :]
+    model.layer_dims = (
+        model.layer_dims[: index + 1] + [new_size] + model.layer_dims[index + 1 :]
     )
 
 
 def grow_layer(
     model: nn.Module, index: int, n_new: int, init_type: InitType = InitType.IDENTITY
 ) -> None:
-    """Grow an existing layer by adding neurons.
+    """Grow the output dimension of the transformation from layer_dims[index] to layer_dims[index + 1].
 
     Args:
-        model: The neural network model
-        index: Layer index to grow
+        model: The neural network model with model.layers and model.layer_dims
+        index: Index of layer to grow (0 = input layer → first hidden layer)
         n_new: Number of neurons to add
         init_type: Initialization strategy for the new weights
 
@@ -68,38 +67,45 @@ def grow_layer(
 
     old_layer = model.layers[index]
     in_dim = old_layer.in_features
-    out_dim = old_layer.out_features + n_new
+    old_out = old_layer.out_features
+    new_out = old_out + n_new
 
-    # Create and initialize new layer
-    new_layer = nn.Linear(in_dim, out_dim)
-    new_layer.weight.data[: old_layer.out_features, :] = old_layer.weight.data
-    new_layer.bias.data[: old_layer.out_features] = old_layer.bias.data
-    new_layer.weight.data[old_layer.out_features :, :] = init_weight_block(
-        in_dim, n_new, init_type
-    )
-    new_layer.bias.data[old_layer.out_features :].zero_()
+    # Create and initialize the grown layer
+    new_layer = nn.Linear(in_dim, new_out)
+    new_layer.weight.data[:old_out, :] = old_layer.weight.data
+    new_layer.bias.data[:old_out] = old_layer.bias.data
+    new_layer.weight.data[old_out:, :] = init_weight_block(in_dim, n_new, init_type)
+    new_layer.bias.data[old_out:] = 0.0
 
     model.layers[index] = new_layer
-    model.layer_sizes[index + 1] += n_new
+    model.layer_dims[index + 1] = new_out  # update dimension bookkeepingw
 
-    # Update next layer if it exists
+    # Update the input dimension of the next layer, if it exists
     if index + 1 < len(model.layers):
-        next_layer = model.layers[index + 1]
-        new_next = nn.Linear(out_dim, next_layer.out_features)
-        new_next.weight.data[:, : next_layer.in_features] = next_layer.weight.data
-        new_next.bias.data = next_layer.bias.data
-        new_next.weight.data[:, next_layer.in_features :].zero_()
+        old_next = model.layers[index + 1]
+        next_out = old_next.out_features
+
+        # Create new next layer with updated input dimension
+        new_next = nn.Linear(new_out, next_out)
+        new_next.weight.data[:, :old_out] = old_next.weight.data
+
+        # Initialize the new columns instead of zeroing them
+        new_init_block = init_weight_block(new_out, next_out, init_type)
+        new_next.weight.data[:, old_out:] = new_init_block[:, old_out:]
+
+        new_next.bias.data = old_next.bias.data  # preserve bias
+
         model.layers[index + 1] = new_next
-        model.layer_sizes[index + 1] = out_dim
 
 
-def prune_neurons(model: nn.Module, index: int, neuron_indices: List[int]) -> None:
-    """Remove specified neurons from a layer.
+def prune_neurons(model: nn.Module, index: int, neuron_indices: list[int]) -> None:
+    """Remove specified neurons from the output of layer `index`, reducing layer_dims[index + 1].
 
     Args:
-        model: The neural network model
-        index: Layer index to prune
-        neuron_indices: Indices of neurons to remove
+        model: The neural network model with model.layers and model.layer_dims
+        index: Index of the layer whose output neurons are to be pruned
+               (0 = input → first hidden layer)
+        neuron_indices: Indices of output neurons to remove
 
     Raises:
         IndexError: If index is out of bounds
@@ -125,7 +131,7 @@ def prune_neurons(model: nn.Module, index: int, neuron_indices: List[int]) -> No
     new_layer.bias.data = old_layer.bias.data[keep_indices]
 
     model.layers[index] = new_layer
-    model.layer_sizes[index + 1] = out_dim
+    model.layer_dims[index + 1] = out_dim
 
     # Update next layer if it exists
     if index + 1 < len(model.layers):
@@ -133,5 +139,6 @@ def prune_neurons(model: nn.Module, index: int, neuron_indices: List[int]) -> No
         new_next = nn.Linear(out_dim, next_layer.out_features)
         new_next.weight.data = next_layer.weight.data[:, keep_indices]
         new_next.bias.data = next_layer.bias.data
+
         model.layers[index + 1] = new_next
-        model.layer_sizes[index + 1] = out_dim
+        model.layer_dims[index + 1] = out_dim  # Now input to next layer

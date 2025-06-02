@@ -1,72 +1,52 @@
+from typing import Optional
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from ..utils.init_utils import init_weight_block, InitType
+
+from src.utils import growth_utils as _growth
+from src.utils.init_utils import InitType
 
 
 class GrowableMLP(nn.Module):
-    def __init__(self, layer_sizes, init_type=InitType.IDENTITY):
+    def __init__(
+        self, layer_dims: list[int], init_type: InitType = InitType.IDENTITY
+    ) -> None:
         super().__init__()
-        self.layer_sizes = layer_sizes
         self.init_type = init_type
-        self.layers = nn.ModuleList(
-            [
-                nn.Linear(layer_sizes[i], layer_sizes[i + 1])
-                for i in range(len(layer_sizes) - 1)
-            ]
-        )
-        self._initialize_weights()
+        self._update_architecture(layer_dims)
 
-    def _initialize_weights(self):
-        for layer in self.layers:
-            layer.weight.data = init_weight_block(
-                layer.in_features, layer.out_features, self.init_type
-            )
-            layer.bias.data.zero_()
+    def _update_architecture(self, layer_dims: list[int]) -> None:
+        """Update internal layers and dimensions."""
+        self.layer_dims = layer_dims
+        self.layers = nn.ModuleList()
+        for in_dim, out_dim in zip(layer_dims[:-1], layer_dims[1:]):
+            layer = nn.Linear(in_dim, out_dim)
+            nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
+            nn.init.zeros_(layer.bias)
+            self.layers.append(layer)
 
-    def grow_layer(self, layer_idx, new_size, init_type=None):
-        """Grow a specific layer to a new size."""
-        if init_type is None:
-            init_type = self.init_type
-
-        old_layer = self.layers[layer_idx]
-        old_in_features = old_layer.in_features
-        old_out_features = old_layer.out_features
-
-        # Create new layer with larger size
-        if layer_idx < len(self.layers) - 1:
-            new_layer = nn.Linear(old_in_features, new_size)
-            next_layer = nn.Linear(new_size, self.layers[layer_idx + 1].out_features)
-
-            # Initialize new weights
-            new_layer.weight.data = init_weight_block(
-                old_in_features, new_size, init_type
-            )
-            next_layer.weight.data = init_weight_block(
-                new_size, self.layers[layer_idx + 1].out_features, init_type
-            )
-
-            # Copy old biases and zero-initialize new ones
-            new_layer.bias.data[:old_out_features] = old_layer.bias.data
-            new_layer.bias.data[old_out_features:].zero_()
-            next_layer.bias.data = self.layers[layer_idx + 1].bias.data
-
-            # Update layers
-            self.layers[layer_idx] = new_layer
-            self.layers[layer_idx + 1] = next_layer
-            self.layer_sizes[layer_idx + 1] = new_size
-        else:
-            # Handle output layer growth similarly
-            new_layer = nn.Linear(old_in_features, new_size)
-            new_layer.weight.data = init_weight_block(
-                old_in_features, new_size, init_type
-            )
-            new_layer.bias.data[:old_out_features] = old_layer.bias.data
-            new_layer.bias.data[old_out_features:].zero_()
-            self.layers[layer_idx] = new_layer
-            self.layer_sizes[layer_idx + 1] = new_size
-
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         for layer in self.layers[:-1]:
             x = F.relu(layer(x))
-        return self.layers[-1](x)  # No activation on final layer
+        return self.layers[-1](x)
+
+    def grow_layer(
+        self, index: int, n_new: int, init_type: Optional[InitType] = None
+    ) -> None:
+        """Grow output size of layer[index] and adjust next layer's input."""
+        if init_type is None:
+            init_type = self.init_type
+        _growth.grow_layer(self, index=index, n_new=n_new, init_type=init_type)
+
+    def insert_layer(
+        self, index: int, new_size: int, init_type: Optional[InitType] = None
+    ) -> None:
+        """Insert a new hidden layer at position index."""
+        if init_type is None:
+            init_type = self.init_type
+        _growth.insert_layer(self, index=index, new_size=new_size, init_type=init_type)
+
+    def prune_neurons(self, index: int, neuron_indices: list[int]) -> None:
+        """Prune specific neurons from the output of layer[index]."""
+        _growth.prune_neurons(self, index=index, neuron_indices=neuron_indices)

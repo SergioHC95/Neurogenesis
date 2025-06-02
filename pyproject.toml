@@ -2,22 +2,56 @@
 requires = ["setuptools>=45", "wheel"]
 build-backend = "setuptools.build_meta"
 
+# ---------------------------
+# Code Formatting: Black
+# ---------------------------
 [tool.black]
 line-length = 88
-target-version = ['py311']
+target-version = ["py311"]
 include = '\.pyi?$'
 extend-exclude = '''
-# A regex preceded with ^/ will apply only to files and directories
-# in the root of the project.
 ^/docs
 '''
 
+# ---------------------------
+# Linting & Import Sorting: Ruff
+# ---------------------------
+[tool.ruff]
+line-length = 120  # Do not flag strings even if beyond Black limit
+
+[tool.ruff.lint]
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort (import sorting)
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+    "RUF",  # Ruff-specific rules
+]
+ignore = [
+    "E203",  # Whitespace before ':' — matches Black's style
+]
+
+[tool.ruff.lint.isort]
+known-first-party = ["src"]
+
+# ---------------------------
+# Testing: Pytest
+# ---------------------------
 [tool.pytest.ini_options]
+minversion = "7.0"
 addopts = "-v -s --cov=src --cov-report=term"
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+log_cli = true
+log_level = "INFO"
 
+# ---------------------------
+# Code Coverage: Coverage.py
+# ---------------------------
 [tool.coverage.run]
+branch = true
 omit = [
     "tests/*",
     "*/__init__.py",
@@ -25,11 +59,8 @@ omit = [
 
 [tool.coverage.report]
 show_missing = true
-
-[tool.flake8]
-max-line-length = 88
-extend-ignore = ["E203"]
-exclude = [".git", "__pycache__", "build", "dist"]
-per-file-ignores = [
-    "__init__.py:F401",  # imported but unused in __init__.py files
-] 
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == '__main__':",
+    "raise NotImplementedError",
+]

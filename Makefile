@@ -1,35 +1,35 @@
-# How to use this Makefile:
-# 
-# Common commands:
-#   make format     # Format code using Black
-#   make lint       # Lint code using Flake8
+# Commands:
+#   make fix        # Format code and auto-fix lint with Black + Ruff
+#   make lint       # Run Ruff linter
 #   make test       # Run tests with pytest
+#   make check      # Run lint, typecheck, and test
+#   make ci         # Run fix, lint, typecheck, and test (CI pipeline)
 #   make coverage   # Generate test coverage report (HTML)
-#   make clean      # Remove temporary and cache files
-#   make check      # Run format, lint, and test in sequence
-#
-# Usage:
-#   Run `make <target>` in your terminal, e.g.:
-#     make test
+#   make clean      # Remove temp/cache files
 
+.PHONY: fix lint test check ci coverage clean
 
-
-.PHONY: format lint test coverage clean
-
-format:
+fix:
 	black .
+	ruff check --fix .
 
 lint:
-	flake8 .
+	ruff check .
 
 test:
 	pytest
 
+check: lint test
+
+ci: fix lint test
+
 coverage:
-	pytest --cov-report=html
+	pytest --cov=src --cov-report=html
 
 clean:
-	rm -rf .pytest_cache .coverage htmlcov
-	find . -type d -name __pycache__ -exec rm -rf {} +
+	@echo Cleaning up test artifacts and caches...
+	@if exist .pytest_cache rmdir /s /q .pytest_cache
+	@if exist .coverage del /q .coverage
+	@if exist htmlcov rmdir /s /q htmlcov
+	@powershell -Command "Get-ChildItem -Recurse -Directory -Filter '__pycache__' | Remove-Item -Recurse -Force -ErrorAction SilentlyContinue"
 
-check: format lint test 
