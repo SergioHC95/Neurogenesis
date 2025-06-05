@@ -1,19 +1,23 @@
 name: cortex
 channels:
-  - conda-forge
   - defaults
+  - conda-forge
 dependencies:
   - python=3.12
-  - numpy=2.2.6
+  - numpy=1.26.4
   - matplotlib=3.10.3
   - tqdm=4.67.1
   - ipython=9.2.0
   - pandas=2.2.3
   - pip=25.1.1
   - pip:
-      - torch==2.7.0
-      - torchvision==0.22.0
+      - torch==2.2.2
+      - torchvision==0.17.2
+      - pillow==11.0.0
+      - jupyter==1.0.0
+      - ipykernel==6.26.0
       - black==25.1.0
+      - black[jupyter]==25.1.0
       - pytest==8.1.1
       - pytest-sugar==1.0.0
       - pytest-cov==4.1.0
@@ -22,3 +26,4 @@ dependencies:
       - ruff==0.4.0
       - mypy==1.10.0
       - tensorboard==2.19.0
+      

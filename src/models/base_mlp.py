@@ -8,13 +8,13 @@ class BaseMLP(nn.Module):
         self.layer_dims = layer_dims
         self.L = len(layer_dims) - 1
         self.layers = []
-        for layer_idx in range(self.L):
-            layer = nn.Linear(layer_dims[layer_idx], layer_dims[layer_idx + 1])
+        for idx in range(self.L):
+            layer = nn.Linear(layer_dims[idx], layer_dims[idx + 1])
             # Use Kaiming (He) initialization (optimal for ReLU)
-            nn.init.kaiming_normal_(layer.weight, nonlinearity="relu")
+            nn.init.kaiming_uniform_(layer.weight, nonlinearity="relu")
             nn.init.zeros_(layer.bias)
             self.layers.append(layer)
-            if layer_idx < self.L:
+            if idx < self.L - 1:
                 self.layers.append(nn.ReLU())
         self.model = nn.Sequential(*self.layers)
 

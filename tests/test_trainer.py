@@ -97,7 +97,7 @@ def test_base_trainer(tmp_path, dummy_model, dummy_optimizer, dummy_loss, dummy_
 
     assert resumed_trainer.epoch == trainer.epoch
     assert resumed_trainer.train_losses[-1] == trainer.train_losses[-1]
-    assert resumed_trainer.val_losses[-1] == trainer.val_losses[-1]
+    assert resumed_trainer.val_loss_log[-1] == trainer.val_loss_log[-1]
 
 
 def test_plot_learning_curve(
@@ -114,7 +114,7 @@ def test_plot_learning_curve(
         path=str(checkpoint_path),
     )
     trainer.train_losses = [1.0, 0.9]
-    trainer.val_losses = [1.1, 1.0]
+    trainer.val_loss_log = [(0, 1.1), (1, 1.0)]
 
     plot_path = tmp_path / "plot.png"
     trainer.plot_learning_curve(save=False, show=False)

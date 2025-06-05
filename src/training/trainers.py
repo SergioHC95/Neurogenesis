@@ -3,17 +3,20 @@ import os
 import sys
 
 import matplotlib.pyplot as plt
-import pandas as pd
 import torch
 import torch.nn as nn
-from IPython.display import clear_output, display
+from IPython.display import clear_output
 from torch.nn.utils import clip_grad_norm_
 from torch.optim import Optimizer
+from torch.profiler import ProfilerActivity, profile
 from torch.utils.data import DataLoader
 from torch.utils.tensorboard import SummaryWriter
-from torch.profiler import ProfilerActivity
-
 from tqdm import tqdm
+
+try:
+    from tqdm.notebook import tqdm as tqdm_notebook
+except ImportError:
+    tqdm_notebook = tqdm  # fallback for terminal use
 
 
 class BaseTrainer:
@@ -42,7 +45,8 @@ class BaseTrainer:
         path (str): Path for checkpoint.
         epoch (int): Current epoch.
         train_losses (list): Training losses by epoch.
-        val_losses (list): Validation losses by epoch.
+        val_loss_log (list): Validation losses by epoch.
+        val_acc_log (list): Validation accuracies by epoch.
     """
 
     def __init__(
@@ -75,7 +79,8 @@ class BaseTrainer:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             self.epoch = 0
             self.train_losses = []
-            self.val_losses = []
+            self.val_loss_log = []
+            self.val_acc_log = []
 
     def preprocess_batch(self, batch):
         """
@@ -141,38 +146,6 @@ class BaseTrainer:
             loader.set_postfix(loss=loss.item())
         return total_loss / len(self.val_loader)
 
-    def train(self, epochs=100, print_every=10, validate_every=10):
-        """
-        Train the model for a given number of epochs.
-
-        Args:
-            epochs (int): Number of training epochs.
-            print_every (int): Interval for printing progress.
-            validate_every (int): Interval for validation.
-
-        Returns:
-            tuple: (list of training losses, list of validation losses)
-        """
-        end_epoch = self.epoch + epochs
-        for epoch in range(self.epoch, end_epoch):
-            train_loss = self.train_epoch()
-            self.train_losses.append(train_loss)
-            val_loss = None
-            if self.val_loader and (
-                epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1
-            ):
-                val_loss = self.val_epoch()
-                self.val_losses.append(val_loss)
-            self.epoch += 1
-            self.save_checkpoint()
-            if epoch == 0 or (epoch + 1) % print_every == 0:
-                print(
-                    f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
-                    + (f", Val loss: {val_loss:.4f}" if val_loss else "")
-                )
-        print("Training completed")
-        return self.train_losses, self.val_losses
-
     @torch.no_grad()
     def evaluate(self, loader: DataLoader):
         """
@@ -192,6 +165,44 @@ class BaseTrainer:
         acc = correct / total
         return acc
 
+    def train(self, epochs=100, print_every=10, validate_every=10):
+        """
+        Train the model for a given number of epochs.
+
+        Args:
+            epochs (int): Number of training epochs.
+            print_every (int): Interval for printing progress.
+            validate_every (int): Interval for validation.
+
+        Returns:
+            tuple: (list of training losses, list of validation losses, list of validation accuracies)
+        """
+        print("BaseTrainer initialized")
+        end_epoch = self.epoch + epochs
+        for epoch in range(self.epoch, end_epoch):
+            train_loss = self.train_epoch()
+            self.train_losses.append(train_loss)
+            val_loss = None
+            val_acc = None
+            if self.val_loader and (
+                epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1
+            ):
+                val_loss = self.val_epoch()
+                self.val_loss_log.append((epoch, val_loss))
+                val_acc = self.evaluate(self.val_loader)
+                self.val_acc_log.append((epoch, val_acc))
+            self.epoch += 1
+            self.save_checkpoint()
+            if epoch == 0 or epoch == end_epoch - 1 or ((epoch + 1) % print_every == 0):
+                msg = f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
+                if val_loss is not None:
+                    msg += f", Val loss: {val_loss:.4f}"
+                if val_acc is not None:
+                    msg += f", Val acc: {val_acc:.2%}%"
+                print(msg)
+        print("Training completed")
+        return self.train_losses, self.val_loss_log, self.val_acc_log
+
     def save_checkpoint(self):
         """
         Save model, optimizer, and training state to a checkpoint file.
@@ -201,7 +212,8 @@ class BaseTrainer:
             "optimizer": self.optim.state_dict(),
             "epoch": self.epoch,
             "train_losses": self.train_losses,
-            "val_losses": self.val_losses,
+            "val_loss_log": self.val_loss_log,
+            "val_acc_log": self.val_acc_log,
             "device": str(self.device),
         }
         torch.save(checkpoint, self.path)
@@ -215,10 +227,16 @@ class BaseTrainer:
         self.optim.load_state_dict(checkpoint["optimizer"])
         self.epoch = checkpoint["epoch"]
         self.train_losses = checkpoint["train_losses"]
-        self.val_losses = checkpoint["val_losses"]
+        self.val_loss_log = checkpoint["val_loss_log"]
+        self.val_acc_log = checkpoint.get("val_acc_log", [])
         print(
             f"Resumed on {self.device} from epoch {self.epoch}: Train loss {self.train_losses[-1]:.4f}"
-            + (f", Val loss {self.val_losses[-1]:.4f}" if self.val_losses else "")
+            + (
+                f", Val loss {self.val_loss_log[-1][1]:.4f}"
+                if self.val_loss_log
+                else ""
+            )
+            + (f", Val acc {self.val_acc_log[-1][1]:.4f}" if self.val_acc_log else "")
         )
 
 
@@ -339,7 +357,7 @@ class LoggingTrainer(BaseTrainer):
             self.csv_path = None
             self.writer = None
 
-    def _log_epoch(self, epoch, train_loss, val_loss=None):
+    def _log_epoch(self, epoch, train_loss, val_loss=None, val_acc=None):
         """
         Log the latest epoch's results to CSV and/or TensorBoard.
         """
@@ -347,12 +365,16 @@ class LoggingTrainer(BaseTrainer):
             self.writer.add_scalar("Loss/Train", train_loss, epoch)
             if val_loss is not None:
                 self.writer.add_scalar("Loss/Val", val_loss, epoch)
+            if val_acc is not None:
+                self.writer.add_scalar("Accuracy/Val", val_acc, epoch)
 
         if self.csv_path:
             file_exists = os.path.isfile(self.csv_path)
             row = {"epoch": epoch, "train_loss": train_loss}
             if val_loss is not None:
                 row["val_loss"] = val_loss
+            if val_acc is not None:
+                row["val_acc"] = val_acc
             with open(self.csv_path, mode="a", newline="") as f:
                 writer = csv.DictWriter(f, fieldnames=row.keys())
                 if not file_exists:
@@ -362,29 +384,38 @@ class LoggingTrainer(BaseTrainer):
     def train(self, epochs=100, print_every=10, validate_every=10):
         """
         Train the model, logging metrics after each epoch.
+
+        Returns:
+            tuple: (list of training losses, list of validation losses, list of validation accuracies)
         """
+        print("LoggingTrainer initialized")
         end_epoch = self.epoch + epochs
         for epoch in range(self.epoch, end_epoch):
             train_loss = self.train_epoch()
             self.train_losses.append(train_loss)
             val_loss = None
+            val_acc = None
             if self.val_loader and (
                 epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1
             ):
                 val_loss = self.val_epoch()
-                self.val_losses.append(val_loss)
+                self.val_loss_log.append((epoch, val_loss))
+                val_acc = self.evaluate(self.val_loader)
+                self.val_acc_log.append((epoch, val_acc))
             self.epoch += 1
             self.save_checkpoint()
 
-            self._log_epoch(self.epoch, train_loss, val_loss)
+            self._log_epoch(self.epoch, train_loss, val_loss, val_acc)
 
             if epoch == 0 or (epoch + 1) % print_every == 0:
-                print(
-                    f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
-                    + (f", Val loss: {val_loss:.4f}" if val_loss else "")
-                )
+                msg = f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
+                if val_loss is not None:
+                    msg += f", Val loss: {val_loss:.4f}"
+                if val_acc is not None:
+                    msg += f", Val acc: {val_acc:.2%}"
+                print(msg)
         print("Training completed")
-        return self.train_losses, self.val_losses
+        return self.train_losses, self.val_loss_log, self.val_acc_log
 
     def close(self):
         if self.writer:
@@ -395,7 +426,7 @@ class NotebookTrainer(BaseTrainer):
     """
     Trainer for notebooks: shows live learning curves and interactive feedback.
     - Plots curves live during training
-    - Prints summary table at end
+    - Prints per-epoch summary with train/val loss and validation accuracy
     """
 
     def __init__(self, *args, **kwargs):
@@ -403,20 +434,37 @@ class NotebookTrainer(BaseTrainer):
 
     def plot_learning_curve(self, save=False, path=None, show=True):
         """
-        Live plot of train/val loss during training (clears output).
+        Live plot of train/val loss and validation accuracy during training (clears output).
         """
         clear_output(wait=True)
-        plt.figure(figsize=(8, 5))
-        plt.plot(self.train_losses, label="Train Loss", color="blue")
-        if self.val_losses:
-            plt.plot(self.val_losses, label="Val Loss", color="orange")
-        plt.xlabel("Epoch")
-        plt.ylabel("Loss")
+        fig, ax1 = plt.subplots(figsize=(8, 5))
+
+        # Loss curves
+        ax1.plot(self.train_losses, label="Train Loss", color="blue")
+        if hasattr(self, "val_loss_log") and self.val_loss_log:
+            val_epochs, val_vals = zip(*self.val_loss_log)
+            ax1.plot(
+                val_epochs, val_vals, label="Val Loss", color="orange", linestyle="--"
+            )
+        ax1.set_xlabel("Epoch")
+        ax1.set_ylabel("Loss")
+        ax1.legend(loc="upper left")
+        ax1.grid(True)
+
+        # Validation accuracy curve (on second y-axis if present)
+        if hasattr(self, "val_acc_log") and self.val_acc_log:
+            ax2 = ax1.twinx()
+            acc_epochs, acc_vals = zip(*self.val_acc_log)
+            ax2.plot(
+                acc_epochs, acc_vals, label="Val Acc", color="green", linestyle=":"
+            )
+            ax2.set_ylabel("Validation Accuracy")
+            ax2.legend(loc="upper right")
+
         plt.title("Learning Curve")
-        plt.legend()
-        plt.grid(True)
         plt.tight_layout()
         if save and path:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
             plt.savefig(path)
             plt.close()
         elif show:
@@ -424,47 +472,115 @@ class NotebookTrainer(BaseTrainer):
         else:
             plt.close()
 
-    def _display_table(self, last_n=5):
+    def train_epoch(self):
         """
-        Display the last n epochs of losses in a pandas DataFrame.
+        Run one training epoch.
+        Returns:
+            float: Average training loss for this epoch.
         """
-        data = {
-            "Epoch": list(range(self.epoch - last_n + 1, self.epoch + 1)),
-            "Train Loss": self.train_losses[-last_n:],
-        }
-        if self.val_losses:
-            data["Val Loss"] = self.val_losses[-last_n:]
-        df = pd.DataFrame(data)
-        display(df)
+        self.model.train()
+        # Detect notebook environment
+        try:
+            from IPython import get_ipython
 
-    def train(self, epochs=100, print_every=1, validate_every=1, plot=True, table=True):
+            in_notebook = (
+                get_ipython() is not None and "IPKernelApp" in get_ipython().config
+            )
+        except Exception:
+            in_notebook = False
+        tqdm_fn = tqdm_notebook if in_notebook else tqdm
+
+        loader = tqdm_fn(
+            self.train_loader,
+            desc=f"Epoch {self.epoch+1} [Train]",
+            unit="batch",
+            leave=False,
+            colour="#8B0000",
+        )
+        total_loss = 0.0
+        for batch in loader:
+            inputs, targets = self.preprocess_batch(batch)
+            self.optim.zero_grad()
+            outputs = self.model(inputs)
+            loss = self.loss_f(outputs, targets)
+            loss.backward()
+            clip_grad_norm_(self.model.parameters(), max_norm=self.gradient_clip)
+            self.optim.step()
+            total_loss += loss.item()
+            loader.set_postfix(loss=loss.item())
+        return total_loss / len(self.train_loader)
+
+    @torch.no_grad()
+    def val_epoch(self):
         """
-        Train with live interactive feedback.
+        Run one validation epoch.
+        Returns:
+            float: Average validation loss for this epoch.
         """
+        self.model.eval()
+        # Detect notebook environment
+        try:
+            from IPython import get_ipython
+
+            in_notebook = (
+                get_ipython() is not None and "IPKernelApp" in get_ipython().config
+            )
+        except Exception:
+            in_notebook = False
+        tqdm_fn = tqdm_notebook if in_notebook else tqdm
+
+        loader = tqdm_fn(
+            self.val_loader,
+            desc=f"Epoch {self.epoch+1} [Val]",
+            unit="batch",
+            leave=False,
+            colour="#8B0000",
+        )
+        total_loss = 0.0
+        for batch in loader:
+            inputs, targets = self.preprocess_batch(batch)
+            outputs = self.model(inputs)
+            loss = self.loss_f(outputs, targets)
+            total_loss += loss.item()
+            loader.set_postfix(loss=loss.item())
+        return total_loss / len(self.val_loader)
+
+    def train(self, epochs=100, print_every=1, validate_every=1, plot=True):
+        """
+        Train with live interactive feedback. Prints per-epoch summary (no table).
+
+        Returns:
+            tuple: (list of training losses, list of validation losses, list of validation accuracies)
+        """
+        print("NotebookTrainer initialized")
         end_epoch = self.epoch + epochs
+
         for epoch in range(self.epoch, end_epoch):
             train_loss = self.train_epoch()
             self.train_losses.append(train_loss)
             val_loss = None
+            val_acc = None
             if self.val_loader and (
                 epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1
             ):
                 val_loss = self.val_epoch()
-                self.val_losses.append(val_loss)
+                self.val_loss_log.append((epoch, val_loss))
+                val_acc = self.evaluate(self.val_loader)
+                self.val_acc_log.append((epoch, val_acc))
             self.epoch += 1
             self.save_checkpoint()
             # Live feedback
             if plot:
                 self.plot_learning_curve(show=True)
-            if table and (epoch == 0 or (epoch + 1) % print_every == 0):
-                print(f"Epoch {epoch+1}/{end_epoch}")
-                self._display_table()
+            # Print summary line
+            msg = f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
+            if val_loss is not None:
+                msg += f", Val loss: {val_loss:.4f}"
+            if val_acc is not None:
+                msg += f", Val acc: {val_acc:.2%}"
+            print(msg)
         print("Training completed")
-        if plot:
-            self.plot_learning_curve(show=True)
-        if table:
-            self._display_table(last_n=min(10, self.epoch))
-
+        return self.train_losses, self.val_loss_log, self.val_acc_log
 
 
 class ProfilingTrainer(BaseTrainer):
@@ -481,6 +597,7 @@ class ProfilingTrainer(BaseTrainer):
         param_updates (int): Total optimizer steps taken.
         flop_stats (list): List of profiled FLOPs (per epoch).
     """
+
     def __init__(self, *args, profile_batches=1, profile_dir=None, **kwargs):
         super().__init__(*args, **kwargs)
         self.param_updates = 0
@@ -494,9 +611,29 @@ class ProfilingTrainer(BaseTrainer):
             self.profile_csv = None
 
     def train_epoch(self):
+        """
+        Run one training epoch with FLOP profiling.
+        Returns:
+            float: Average training loss for this epoch.
+        """
         self.model.train()
-        use_tqdm = sys.stdout.isatty()
-        loader = tqdm(self.train_loader, desc=f"Epoch {self.epoch+1} [Train]", unit="batch", leave=False, disable=not use_tqdm)
+        # Notebook/CLI auto-detection for tqdm
+        try:
+            from IPython import get_ipython
+
+            in_notebook = (
+                get_ipython() is not None and "IPKernelApp" in get_ipython().config
+            )
+        except Exception:
+            in_notebook = False
+        tqdm_fn = tqdm_notebook if in_notebook else tqdm
+
+        loader = tqdm_fn(
+            self.train_loader,
+            desc=f"Epoch {self.epoch+1} [Train]",
+            unit="batch",
+            leave=False,
+        )
         total_loss = 0.0
         epoch_flops = 0
 
@@ -506,19 +643,25 @@ class ProfilingTrainer(BaseTrainer):
             # Profile only the first N batches for FLOPs (typically N=1 for speed)
             if i < self.profile_batches:
                 with profile(
-                    activities=[ProfilerActivity.CPU], 
-                    record_shapes=True, 
-                    profile_memory=True, 
-                    with_flops=True
+                    activities=[ProfilerActivity.CPU],
+                    record_shapes=True,
+                    profile_memory=True,
+                    with_flops=True,
                 ) as prof:
                     outputs = self.model(inputs)
                     loss = self.loss_f(outputs, targets)
                     loss.backward()
-                    clip_grad_norm_(self.model.parameters(), max_norm=self.gradient_clip)
+                    clip_grad_norm_(
+                        self.model.parameters(), max_norm=self.gradient_clip
+                    )
                     self.optim.step()
                 # Estimate total FLOPs for this batch
                 batch_flops = sum(
-                    (evt.flops if hasattr(evt, 'flops') and evt.flops is not None else 0)
+                    (
+                        evt.flops
+                        if hasattr(evt, "flops") and evt.flops is not None
+                        else 0
+                    )
                     for evt in prof.key_averages()
                 )
                 epoch_flops += batch_flops
@@ -535,6 +678,39 @@ class ProfilingTrainer(BaseTrainer):
         self.flop_stats.append(epoch_flops)
         return total_loss / len(self.train_loader)
 
+    @torch.no_grad()
+    def val_epoch(self):
+        """
+        Run one validation epoch.
+        Returns:
+            float: Average validation loss for this epoch.
+        """
+        self.model.eval()
+        try:
+            from IPython import get_ipython
+
+            in_notebook = (
+                get_ipython() is not None and "IPKernelApp" in get_ipython().config
+            )
+        except Exception:
+            in_notebook = False
+        tqdm_fn = tqdm_notebook if in_notebook else tqdm
+
+        loader = tqdm_fn(
+            self.val_loader,
+            desc=f"Epoch {self.epoch+1} [Val]",
+            unit="batch",
+            leave=False,
+        )
+        total_loss = 0.0
+        for batch in loader:
+            inputs, targets = self.preprocess_batch(batch)
+            outputs = self.model(inputs)
+            loss = self.loss_f(outputs, targets)
+            total_loss += loss.item()
+            loader.set_postfix(loss=loss.item())
+        return total_loss / len(self.val_loader)
+
     def save_profile_stats(self):
         """
         Save per-epoch FLOPs and total parameter updates to CSV.
@@ -545,27 +721,47 @@ class ProfilingTrainer(BaseTrainer):
             writer = csv.DictWriter(f, fieldnames=["epoch", "flops", "param_updates"])
             writer.writeheader()
             for i, flops in enumerate(self.flop_stats):
-                writer.writerow({"epoch": i+1, "flops": flops, "param_updates": self.param_updates})
+                writer.writerow(
+                    {
+                        "epoch": i + 1,
+                        "flops": flops,
+                        "param_updates": self.param_updates,
+                    }
+                )
 
     def train(self, epochs=100, print_every=10, validate_every=10):
+        """
+        Train the model for a given number of epochs, with profiling.
+
+        Returns:
+            tuple: (list of training losses, list of validation losses, list of validation accuracies)
+        """
+        print("ProfilingTrainer initialized")
         end_epoch = self.epoch + epochs
         for epoch in range(self.epoch, end_epoch):
             train_loss = self.train_epoch()
             self.train_losses.append(train_loss)
             val_loss = None
-            if self.val_loader and (epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1):
+            val_acc = None
+            if self.val_loader and (
+                epoch % validate_every == 0 or epoch == 0 or epoch == end_epoch - 1
+            ):
                 val_loss = self.val_epoch()
-                self.val_losses.append(val_loss)
+                self.val_loss_log.append((epoch, val_loss))
+                val_acc = self.evaluate(self.val_loader)
+                self.val_acc_log.append((epoch, val_acc))
             self.epoch += 1
             self.save_checkpoint()
             if epoch == 0 or (epoch + 1) % print_every == 0:
-                print(
-                    f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
-                    + (f", Val loss: {val_loss:.4f}" if val_loss else "")
-                )
+                msg = f"Epoch {epoch+1}/{end_epoch} | Train loss: {train_loss:.4f}"
+                if val_loss is not None:
+                    msg += f", Val loss: {val_loss:.4f}"
+                if val_acc is not None:
+                    msg += f", Val acc: {val_acc:.2%}"
+                print(msg)
         print("Training completed")
         self.save_profile_stats()
-        return self.train_losses, self.val_losses
+        return self.train_losses, self.val_loss_log, self.val_acc_log
 
     def get_flop_stats(self):
         """
