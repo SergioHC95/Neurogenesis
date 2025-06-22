@@ -9,7 +9,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader, TensorDataset
 
 from src.models.growable_mlp import GrowableMLP
-from src.training.trainers import BaseTrainer, NotebookTrainer
+from src.training.trainer import BaseTrainer, NotebookTrainer
 
 os.environ["KMP_DUPLICATE_LIB_OK"] = "TRUE"
 matplotlib.use("Agg")
