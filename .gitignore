@@ -1,8 +1,74 @@
+# Byte-compiled / optimized / DLL files
 __pycache__/
-*.pyc
-*.pyo
-*.pyd
+*.py[cod]
+
+# Environment
 .env
+.venv
+env/
 venv/
-results/
-notebooks/
+
+# Package/build artifacts
+*.egg-info/
+.eggs/
+build/
+dist/
+*.egg
+*.whl
+
+# Coverage and testing
+.coverage
+.cache/
+.coverage.*
+.pytest_cache/
+.tox/
+.nox/
+.coveragerc
+nosetests.xml
+coverage.xml
+
+# Logs and outputs
+*.log
+*.out
+*.err
+
+# Jupyter checkpoints
+.ipynb_checkpoints/
+
+# VSCode and editor settings
+.vscode/
+.idea/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# PyInstaller
+*.spec
+
+# Python project config
+.pyre/
+.mypy_cache/
+.pylint.d/
+.pyright/
+
+# Model outputs and diagnostics
+checkpoints/
+outputs/
+runs/
+wandb/
+*.pt
+*.pth
+*.ckpt
+*.npy
+*.npz
+
+# Ignore all contents inside notebooks/results/
+notebooks/results/*
+!notebooks/results/.gitkeep
+
+# Ignore data directory
+data/
+
+# Share environment
+!environment.yml

@@ -1,69 +1,54 @@
-# Online Neurogenesis Through Synaptic Plasticity Signals
+# Online Neurogenesis Through Synaptic Plasticity Signals  
 ## A Framework for Adaptive Neural Network Growth During Training
 
+### Project Overview
 
-### 🧠 Project Overview
+**Goal:**  
+Develop MLPs that start small and grow adaptively during training, guided by internal signals indicating capacity bottlenecks or saturation. The aim is to improve sample efficiency, reduce compute costs, and maintain or improve generalization.
 
-**Goal:** Design MLPs that start small and *grow adaptively* during training, based on internal signals that reflect learning saturation and bottlenecks. We aim to boost *sample efficiency*, reduce *computational cost*, and maintain strong generalization.
-
-This project explores how internal training signals—such as mutual information, gradient norms, and activation dynamics—can be used to **diagnose capacity limits** and **trigger model growth**.
-
-### 🔬 Motivation
-
-Modern networks are often overparameterized from the outset. But this is wasteful. We hypothesize that:
-> A model should only grow **when it needs to**—not before.
-
-This principle can:
-- Save compute and memory
-- Adapt to different dataset complexities
-- Offer interpretability through clear growth triggers
-
-### 🧪 Key Research Questions
-
-1. What internal signals reliably detect saturation in learning dynamics?
-2. Does adaptive growth improve compute/sample efficiency?
-3. What growth strategies are most effective (depth-first, width-first)?
-4. How should newly added neurons/layers be initialized?
-
-### 🧭 Project Structure
-
-```
-grow-when-needed/
-│
-├── configs/           # YAML or JSON experiment configurations
-├── notebooks/         # Analysis & development notebooks
-├── src/               # Main codebase
-│   ├── models/        # MLPs (static and dynamic)
-│   ├── diagnostics/   # Mutual info, gradient norms, activation stats
-│   ├── data/          # Loaders and synthetic datasets
-│   ├── training/      # Trainer, growth triggers, callbacks
-│   ├── evaluation/    # Metrics and analysis
-│   └── utils/         # Logging, seeding, helpers
-│
-├── experiments/       # Run scripts for main experiments
-├── results/           # Logs, plots, checkpoints
-├── tests/             # Unit tests
-├── paper/             # Draft paper and figures
-│
-├── requirements.txt   # Dependencies
-├── setup.py           # Install as package
-├── LICENSE
-└── README.md
-```
-
-### 📊 Planned Experiments
-
-- MNIST, Fashion-MNIST, Parity Task, CIFAR-10 (flattened)
-- Baselines: small/fixed MLPs, dropout, early stopping
-- Ablations: MI vs gradient triggers, growth type, layer init
-
-### 📦 Deliverables
-
-- Modular PyTorch codebase
-- Diagnostic toolkit
-- Paper-ready writeup
-- Visualizations and benchmark results
+This framework uses internal diagnostics—such as mutual information, gradient norms, and activation dynamics—to decide when and how the model should expand during training.
 
 ---
 
-Let the model grow *only when it needs to*. 🌱
+### Motivation
+
+Modern neural networks are typically overparameterized from the start—wasting compute and memory on capacity that may not be needed.
+
+We propose a different principle:
+
+> Grow only when necessary.
+
+This approach promises to:
+- Save computation and memory during early training
+- Adaptively match model complexity to data
+- Provide interpretability via explicit growth triggers
+
+---
+
+### Core Research Questions
+
+1. Which internal signals most reliably indicate capacity saturation?
+2. Does online model growth improve training efficiency or generalization?
+3. What growth strategies are most effective (depth-first, width-first, hybrid)?
+4. How should new neurons or layers be initialized to integrate seamlessly?
+
+---
+
+### Planned Experiments
+
+- Tasks: MNIST, Fashion-MNIST, Parity Task, flattened CIFAR-10  
+- Baselines: fixed-size MLPs, dropout, early stopping  
+- Ablations: growth trigger type (MI vs gradients), growth direction, init schemes  
+
+---
+
+### Deliverables
+
+- A modular, extensible PyTorch codebase  
+- Built-in diagnostic toolkit  
+- Benchmark results and visualizations  
+- Draft paper summarizing methods and findings  
+
+---
+
+Let the model grow *only when it needs to*.  
